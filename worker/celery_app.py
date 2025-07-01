@@ -1,4 +1,3 @@
-
 from celery import Celery
 import os
 import json
@@ -11,19 +10,61 @@ celery_app = Celery(
     backend='redis://redis:6379/0'
 )
 
+# Periodic task: refresh screenshots for jobs with refresh > 0
+@celery_app.on_after_configure.connect
+def setup_periodic_tasks(sender, **kwargs):
+    # Run every 1 second
+    sender.add_periodic_task(1.0, refresh_jobs.s(), name='refresh jobs every 1 second')
+
+@celery_app.task
+def refresh_jobs():
+    import time
+    screenshots_dir = Path('/screenshots')
+    now = time.time()
+    for job_dir in screenshots_dir.iterdir():
+        if not job_dir.is_dir():
+            continue
+        request_path = job_dir / 'request.json'
+        if not request_path.exists():
+            continue
+        try:
+            with open(request_path) as f:
+                req = json.load(f)
+            refresh = req.get('refresh')
+            if not refresh or int(refresh) <= 0:
+                continue
+            fmt = req.get('format', 'png')
+            screenshot_path = job_dir / f'screenshot.{fmt}'
+            # If screenshot does not exist or is too old, re-enqueue
+            if not screenshot_path.exists() or (now - screenshot_path.stat().st_mtime) > int(refresh):
+                print(f"[worker] Refreshing job {job_dir.name}")
+                take_screenshot.delay(job_dir.name, req)
+        except Exception as e:
+            print(f"[worker] Error in refresh_jobs for {job_dir}: {e}")
+
 @celery_app.task
 def take_screenshot(job_id, config):
     """
     Celery task to take a screenshot using Playwright and save it to /screenshots/{job_id}/screenshot.{format}
     """
     import asyncio
-    print(f"[worker] Starting take_screenshot for job_id={job_id}")
+    from pathlib import Path
+    import json
+    import time
+    job_dir = Path('/screenshots') / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    # Update created_at.txt on every refresh
+    with open(job_dir / 'created_at.txt', 'w') as f:
+        f.write(time.strftime('%Y-%m-%dT%H:%M:%S'))
+    # Save config for traceability
+    with open(job_dir / 'request.json', 'w') as f:
+        json.dump(config, f)
+    print(f"[worker] (Re)generating screenshot for job_id={job_id}")
     try:
         asyncio.run(_take_screenshot(job_id, config))
         print(f"[worker] Finished take_screenshot for job_id={job_id}")
     except Exception as e:
         # Log error to job dir
-        job_dir = Path('/screenshots') / job_id
         with open(job_dir / 'error.txt', 'w') as f:
             f.write(str(e))
         print(f"[worker] Exception in take_screenshot for job_id={job_id}: {e}")
