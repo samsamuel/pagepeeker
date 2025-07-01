@@ -9,7 +9,7 @@ export default function Home() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
-    const res = await fetch('http://localhost:8000/screenshot', {
+    const res = await fetch('/api/screenshot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
@@ -41,7 +41,7 @@ export default function Home() {
       {imageUrl && (
         <div className="mt-8">
           <h2 className="mb-2 font-semibold">Latest Screenshot:</h2>
-          <img src={`http://localhost:8000${imageUrl}`} alt="Screenshot" className="border rounded" />
+          <img src={`/api${imageUrl}`} alt="Screenshot" className="border rounded" />
         </div>
       )}
     </div>

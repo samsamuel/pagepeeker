@@ -1,8 +1,30 @@
 from fastapi import FastAPI, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
-app = FastAPI()
+
+
+import os
+import logging
+
+# Set DEV mode from environment variable
+DEV = os.getenv("DEV", "false").lower() == "true"
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG if DEV else logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(debug=DEV, root_path="/api")
+
+# Allow CORS for all origins (for development)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ScreenshotRequest(BaseModel):
     url: str
@@ -18,11 +40,58 @@ class ScreenshotRequest(BaseModel):
 
 @app.post("/screenshot")
 def create_screenshot(req: ScreenshotRequest, background_tasks: BackgroundTasks):
-    # TODO: enqueue screenshot job
-    job_id = "abcd1234"  # placeholder
-    return {"status": "queued", "image_url": f"/current_screen?job_id={job_id}"}
+    import uuid
+    import json
+    from datetime import datetime
+    if DEV:
+        logger.debug(f"Received screenshot request: {req}")
+    # Generate a unique job_id
+    job_id = str(uuid.uuid4())
+    # Prepare job directory
+    screenshots_dir = '/screenshots'
+    job_dir = os.path.join(screenshots_dir, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    # Save request as request.json
+    request_path = os.path.join(job_dir, 'request.json')
+    with open(request_path, 'w') as f:
+        json.dump(req.dict(), f)
+    # Optionally, save a timestamp
+    with open(os.path.join(job_dir, 'created_at.txt'), 'w') as f:
+        f.write(datetime.utcnow().isoformat())
+    # Enqueue Celery screenshot job
+    try:
+        from worker.celery_app import take_screenshot
+        logger.info(f"[backend] About to enqueue Celery task for job_id={job_id}")
+        result = take_screenshot.delay(job_id, req.dict())
+        logger.info(f"[backend] Celery task enqueued for job_id={job_id}, task_id={result.id}")
+        if DEV:
+            logger.debug(f"Celery task enqueued for job_id: {job_id}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue Celery task: {e}")
+    if DEV:
+        logger.debug(f"Enqueued job_id: {job_id} at {job_dir}")
+    return {"status": "queued", "job_id": job_id, "image_url": f"/current_screen?job_id={job_id}"}
 
 @app.get("/current_screen")
 def get_current_screen(job_id: str):
-    # TODO: serve latest screenshot for job_id
-    return {"detail": "Not implemented"}
+    import glob
+    from fastapi.responses import FileResponse
+    screenshots_dir = '/screenshots'
+    job_dir = os.path.join(screenshots_dir, job_id)
+    if not os.path.isdir(job_dir):
+        if DEV:
+            logger.debug(f"Job directory not found: {job_dir}")
+        return {"detail": "job_id not found"}
+    # Find screenshot file (png, jpg, jpeg, webp, etc)
+    files = []
+    for ext in ["png", "jpg", "jpeg", "webp", "bmp", "gif"]:
+        files.extend(glob.glob(os.path.join(job_dir, f"screenshot*.{ext}")))
+    if not files:
+        if DEV:
+            logger.debug(f"No screenshot found for job_id: {job_id}")
+        return {"detail": "No screenshot available yet"}
+    # Pick the latest file by modification time
+    latest_file = max(files, key=os.path.getmtime)
+    if DEV:
+        logger.debug(f"Serving screenshot: {latest_file}")
+    return FileResponse(latest_file, media_type="image/*")

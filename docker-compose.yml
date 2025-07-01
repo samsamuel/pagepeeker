@@ -6,10 +6,12 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
+      - ./worker:/worker
       - ./screenshots:/screenshots
     environment:
       - DATABASE_URL=sqlite:///app.db
       - REDIS_URL=redis://redis:6379/0
+      - PYTHONPATH=/app:/worker
     depends_on:
       - redis
       - db
@@ -18,7 +20,7 @@ services:
 
   worker:
     build: ./worker
-    command: celery -A worker.celery_app worker --loglevel=info
+    command: celery -A celery_app worker --loglevel=info
     volumes:
       - ./worker:/app
       - ./screenshots:/screenshots
@@ -40,6 +42,17 @@ services:
     depends_on:
       - backend
 
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "443:443"
+      - "80:80"
+
   redis:
     image: redis:7-alpine
     ports:
@@ -58,4 +71,3 @@ services:
 
 volumes:
   pgdata:
-  screenshots:
