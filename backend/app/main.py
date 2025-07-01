@@ -1,4 +1,6 @@
 from fastapi import FastAPI, BackgroundTasks
+import os
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -15,7 +17,11 @@ DEV = os.getenv("DEV", "false").lower() == "true"
 logging.basicConfig(level=logging.DEBUG if DEV else logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 app = FastAPI(debug=DEV, root_path="/api")
+
+# Serve screenshots as static files
+app.mount("/screenshots", StaticFiles(directory="/screenshots"), name="screenshots")
 
 # Allow CORS for all origins (for development)
 app.add_middleware(
@@ -37,6 +43,9 @@ class ScreenshotRequest(BaseModel):
     custom_css: Optional[str] = None
     imagemagick_script: Optional[str] = None
     refresh: Optional[int] = None
+
+
+from .celery_app import take_screenshot
 
 @app.post("/screenshot")
 def create_screenshot(req: ScreenshotRequest, background_tasks: BackgroundTasks):
@@ -60,7 +69,6 @@ def create_screenshot(req: ScreenshotRequest, background_tasks: BackgroundTasks)
         f.write(datetime.utcnow().isoformat())
     # Enqueue Celery screenshot job
     try:
-        from worker.celery_app import take_screenshot
         logger.info(f"[backend] About to enqueue Celery task for job_id={job_id}")
         result = take_screenshot.delay(job_id, req.dict())
         logger.info(f"[backend] Celery task enqueued for job_id={job_id}, task_id={result.id}")
@@ -70,7 +78,12 @@ def create_screenshot(req: ScreenshotRequest, background_tasks: BackgroundTasks)
         logger.error(f"Failed to enqueue Celery task: {e}")
     if DEV:
         logger.debug(f"Enqueued job_id: {job_id} at {job_dir}")
-    return {"status": "queued", "job_id": job_id, "image_url": f"/current_screen?job_id={job_id}"}
+    # Try to guess the image extension for the frontend to use correct URL
+    ext = req.format.lower() if req.format else "png"
+    if ext not in ["png", "jpg", "jpeg", "webp", "bmp", "gif"]:
+        ext = "png"
+    image_url = f"/screenshots/{job_id}/screenshot.{ext}"
+    return {"status": "queued", "job_id": job_id, "image_url": image_url}
 
 @app.get("/current_screen")
 def get_current_screen(job_id: str):

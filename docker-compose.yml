@@ -46,6 +46,7 @@ services:
     image: nginx:alpine
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./screenshots:/screenshots
     depends_on:
       - frontend
       - backend
