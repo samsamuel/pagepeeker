@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+playwright
+python-multipart
+pydantic
+sqlalchemy
+alembic
+celery[redis]
+redis
+Pillow

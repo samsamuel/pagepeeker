@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - ./screenshots:/screenshots
+    environment:
+      - DATABASE_URL=sqlite:///app.db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: ./worker
+    command: celery -A worker.celery_app worker --loglevel=info
+    volumes:
+      - ./worker:/app
+      - ./screenshots:/screenshots
+    environment:
+      - DATABASE_URL=sqlite:///app.db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+      - db
+
+  frontend:
+    build: ./frontend
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pagepeeker
+      POSTGRES_PASSWORD: pagepeeker
+      POSTGRES_DB: pagepeeker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+  screenshots:
