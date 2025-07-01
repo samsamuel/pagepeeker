@@ -1,3 +1,13 @@
+import shutil
+import os
+import logging
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
+
+# (Move job endpoints after app = FastAPI(...))
 from fastapi import FastAPI, BackgroundTasks
 import os
 from fastapi.staticfiles import StaticFiles
@@ -108,3 +118,50 @@ def get_current_screen(job_id: str):
     if DEV:
         logger.debug(f"Serving screenshot: {latest_file}")
     return FileResponse(latest_file, media_type="image/*")
+
+# List all jobs (optionally filter by refresh interval)
+@app.get("/jobs")
+def list_jobs():
+    screenshots_dir = '/screenshots'
+    jobs = []
+    if not os.path.isdir(screenshots_dir):
+        return jobs
+    for job_id in os.listdir(screenshots_dir):
+        job_dir = os.path.join(screenshots_dir, job_id)
+        if not os.path.isdir(job_dir):
+            continue
+        request_path = os.path.join(job_dir, 'request.json')
+        created_at_path = os.path.join(job_dir, 'created_at.txt')
+        if os.path.exists(request_path):
+            try:
+                import json
+                with open(request_path) as f:
+                    req = json.load(f)
+                created_at = None
+                if os.path.exists(created_at_path):
+                    with open(created_at_path) as f:
+                        created_at = f.read().strip()
+                jobs.append({
+                    "job_id": job_id,
+                    "url": req.get("url"),
+                    "refresh": req.get("refresh"),
+                    "created_at": created_at,
+                    "format": req.get("format"),
+                })
+            except Exception as e:
+                logger.error(f"Error reading job {job_id}: {e}")
+    return jobs
+
+# Delete a job by job_id
+@app.delete("/jobs/{job_id}")
+def delete_job(job_id: str):
+    screenshots_dir = '/screenshots'
+    job_dir = os.path.join(screenshots_dir, job_id)
+    if not os.path.isdir(job_dir):
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        shutil.rmtree(job_dir)
+        return {"status": "deleted", "job_id": job_id}
+    except Exception as e:
+        logger.error(f"Failed to delete job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete job")
