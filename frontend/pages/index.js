@@ -24,6 +24,9 @@ export default function Home() {
   const [pollError, setPollError] = useState(false)
   const [jobs, setJobs] = useState([])
   const [jobsLoading, setJobsLoading] = useState(false)
+  // New state for screenshot mode
+  const [screenshotMode, setScreenshotMode] = useState('full'); // 'full' or 'viewport'
+  const [viewportHeight, setViewportHeight] = useState(800);
 
   useEffect(() => {
     setMounted(true)
@@ -96,7 +99,9 @@ export default function Home() {
       custom_js: customJs,
       custom_css: customCss,
       imagemagick_script: imagemagickScript,
-      refresh: Number(refresh)
+      refresh: Number(refresh),
+      full_page: screenshotMode === 'full',
+      viewport_height: screenshotMode === 'viewport' ? Number(viewportHeight) : undefined
     };
     const res = await fetch('/api/screenshot', {
       method: 'POST',
@@ -173,6 +178,29 @@ export default function Home() {
           onChange={e => setUrl(e.target.value)}
           required
         />
+        {/* Screenshot mode selection */}
+        <div className="mb-4">
+          <label className="mr-4">
+            <input
+              type="radio"
+              name="screenshotMode"
+              value="full"
+              checked={screenshotMode === 'full'}
+              onChange={() => setScreenshotMode('full')}
+            />{' '}
+            Full Page
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="screenshotMode"
+              value="viewport"
+              checked={screenshotMode === 'viewport'}
+              onChange={() => setScreenshotMode('viewport')}
+            />{' '}
+            Viewport
+          </label>
+        </div>
         <div className="flex gap-2 mb-4">
           <input
             type="number"
@@ -183,15 +211,28 @@ export default function Home() {
             onChange={e => setWidth(e.target.value)}
             required
           />
-          <input
-            type="number"
-            className="border p-2 w-1/2"
-            placeholder="Height"
-            value={height}
-            min={100}
-            onChange={e => setHeight(e.target.value)}
-            required
-          />
+          {/* Show height input only for viewport mode */}
+          {screenshotMode === 'viewport' ? (
+            <input
+              type="number"
+              className="border p-2 w-1/2"
+              placeholder="Viewport Height"
+              value={viewportHeight}
+              min={100}
+              onChange={e => setViewportHeight(e.target.value)}
+              required
+            />
+          ) : (
+            <input
+              type="number"
+              className="border p-2 w-1/2 bg-gray-100 text-gray-400"
+              placeholder="Height (ignored)"
+              value={height}
+              min={100}
+              disabled
+              readOnly
+            />
+          )}
         </div>
         <div className="flex gap-2 mb-4">
           <input
