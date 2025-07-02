@@ -14,7 +14,7 @@ Website screenshot tool
 ### 2. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone github.com/samsamuel/pagepeeker
 cd pagepeeker
 ```
 
